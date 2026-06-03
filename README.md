@@ -74,7 +74,7 @@ angicart.exe <image_dir> <im_start> <im_end> <output_base> <vox_x> <vox_y> <vox_
 | `threshold`   | Normalized intensity threshold (0–1) to separate vascular from non-vascular voxels. |
 | `thread_count`| *(Optional)* Number of threads. If omitted, defaults to (CPU cores − 1). |
 
-> CRITICAL: `threshold` is the only hyperparameter that has to be tuned, usually for each tissue-dataset pair. Before running Angicart, it helps to explore different threshold values visually to identify an optimal normalized treshold value for identifying candidate vascular voxels. 
+> CRITICAL: `threshold` is the only hyperparameter that has to be tuned, usually for each tissue-dataset pair. Before running Angicart, it helps to explore different threshold values visually to identify an optimal normalized treshold value for identifying candidate vascular voxels. Depending on the type of imaging, you may have to perform some image preprocessing to make this thresholding possible. For example, there are many non-vascular artiacts in chest-CT scans that have to be cleaned to extract pulmonary vasculature with a thresholding approach. These steps may include segmenting the organ of interest and enhancing vessel structures (e.g. https://doi.org/10.3389/fevo.2021.691830). 
 
 **Example run** (from the repository root, or adjust paths):
 
