@@ -24,7 +24,7 @@ The method for quantifying curvature and tortuosity is described in:
 
 ### Windows
 
-A prebuilt x64 executable can be found in releases: https://github.com/kaiakamatsu/AngicartCpp/releases/tag/v1.0.0windowsmac
+A prebuilt x64 executable can be found in releases: https://github.com/Savage-Lab-UCLA/AngicartCpp/releases/tag/v1.0.0windowsmaclinux
 
 **Build from source (Visual Studio, not VS Code):**
 
@@ -37,7 +37,7 @@ A prebuilt x64 executable can be found in releases: https://github.com/kaiakamat
 
 ### macOS
 
-A prebuilt macOS executable can be found in releases: https://github.com/kaiakamatsu/AngicartCpp/releases/tag/v1.0.0windowsmac
+A prebuilt macOS executable can be found in releases: https://github.com/Savage-Lab-UCLA/AngicartCpp/releases/tag/v1.0.0windowsmaclinux
 
 **Build from source (Xcode):**
 
@@ -48,6 +48,10 @@ A prebuilt macOS executable can be found in releases: https://github.com/kaiakam
 2. Open the folder on xcode. You are now ready to build and run from xcode.
 
 > We noticed that on some macOS devices, users encounter privacy/security warnings when trying to run the executable file. Please see `other_resources/Angicart Notes for MacOS Users.pdf` for a simple fix.
+
+### Linux
+
+A prebuilt binary can be found in releases: https://github.com/Savage-Lab-UCLA/AngicartCpp/releases/tag/v1.0.0windowsmaclinux
 
 ---
 
