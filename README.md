@@ -96,9 +96,67 @@ All outputs use the path given as `output_base` with the following suffixes:
 | `output_base_withRoots.tsv` | Same as above but with a rooted tree: each segment has a parent and children instead of a flat adjacency list. The root vessel of each connected component is identified by finding the tip with the largest average radius (the root vessel is the row with no parent vessel). |
 | `output_base.dat` | Per-backbone tables: for each segment, vertebra index, voxel coordinates (x, y, z), and per-vertebra radii (r_solid, r_surf). Blocks separated by blank lines; each block has a header with the segment name (same as in the TSV). These are x y z coordinates in the 3D array, NOT physical space |
 | `output_base_vessels.png` | Sanity-check visualization of the binary vessel volume before backbone extraction. |
-| `output_base_sphere_radii.tsv` | A column of sphere radii: these are the radius of the spheres utilizes in the sphere coarsening step. The runtime is often long when there are a few large spheres. Adjusting the critFrac parameter may help the software run faster. |
+| `output_base_sphere_radii.tsv` | A column of sphere radii: these are the radius of the spheres utilizes in the sphere coarsening step. The runtime is often long when there are a few large spheres so this output may be helpful for trouble shooting. |
 
-Each segment is labeled (name column) such that the index of the backbone within its connected component appears before the decimal point, and the connected component label appears after the  decimal point.
+Each segment is labeled ("name" column) such that the index of the backbone within its connected component appears before the decimal point, and the connected component label appears after the  decimal point.
+
+## Detailed description of outputs
+
+### Vessel radius measures
+
+Angicart reports two radius definitions. Both measure the distance from a voxel in the segment’s **meat** (voxels assigned to that vessel) to the nearest point on the backbone centerline, then average over voxels (weighted by fractional voxel occupancy).
+
+| Measure | Description |
+|---------|-------------|
+| **`r_solid`** | Average distance-to-centerline over **all** meat voxels near that centerline point. |
+| **`r_surf`** | Average distance-to-centerline over **surface** meat voxels only (boundary voxels of the segmented vessel). |
+
+Per-vertebra values (`r_solid`, `r_surf`) are written in the `.dat` file. Segment-level summaries in the `.tsv` files use:
+
+- **`<r>_vl`** — radius inferred from segment volume and centerline length, as if the segment were a uniform cylinder: \(\sqrt{(V/L)/\pi}\).
+- **`<r>_obs`** — segment-wide average of `r_surf` (observed surface radius).
+
+Segment names use the format `backbone_index.connected_component_index` (e.g. `0.01` = backbone 0 in connected component 1).
+
+### `output_base.tsv`
+
+One row per vessel segment. Adjacent segments at branch points are listed explicitly.
+
+| Column | Description |
+|--------|-------------|
+| `name` | Segment label (`backbone_index.connected_component_index`). |
+| `vol(cu.<units>)` | Physical volume of voxels assigned to this segment. |
+| `len(<units>)` | Centerline length along the backbone (after unsnarling). |
+| `<r>_vl(<units>)` | Volume–length radius: \(\sqrt{(V/L)/\pi}\). |
+| `<r>_obs(<units>)` | Segment-average surface radius (`r_surf` averaged over the whole segment). |
+| `num_adj` | Number of adjacent segments at branch points. |
+| `adj...` | Names of adjacent segments (one column per neighbor). |
+
+### `output_base_withRoots.tsv`
+
+Same segment metrics as `.tsv`, but connectivity is expressed as a rooted tree per connected component (cycles resolved arbitrarily with depth first search). The root is the tip with the largest `<r>_obs` in that component.
+
+| Column | Description |
+|--------|-------------|
+| `name` | Segment label (`backbone_index.connected_component_index`). |
+| `vol(cu.<units>)` | Physical volume of voxels assigned to this segment. |
+| `len(<units>)` | Centerline length along the backbone (after unsnarling). |
+| `<r>_vl(<units>)` | Volume–length radius: \(\sqrt{(V/L)/\pi}\). |
+| `<r>_obs(<units>)` | Segment-average surface radius (`r_surf` averaged over the whole segment). |
+| `par` | Parent segment name, or `N/A` for the root. |
+| `num_child` | Number of child segments in the rooted tree. |
+| `children...` | Names of child segments (one column per child). |
+
+### `output_base.dat`
+
+Per-backbone tables of centerline geometry and local radius profiles. Each segment is a block: a `# name` header line, a column header, one row per centerline voxel (vertebra), then a blank line before the next segment.
+
+| Column | Description |
+|--------|-------------|
+| `idx` | Index of the vertebra along the backbone (0 = one end). |
+| `x`, `y`, `z` | Voxel indices in the 3D array (NOT physical coordinates). |
+| `r_solid` | Per-vertebra `r_solid` (see table above) (these are in physical coordinates). |
+| `r_surf` | Per-vertebra `r_surf` (see table above). (these are in physical coordinates) |
 
 ## Algorithm details
 
