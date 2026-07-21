@@ -1,6 +1,9 @@
 #ifndef PNGMINSURF_H
 #define PNGMINSURF_H 1
 
+#include <cstdlib>
+#include <cstring>
+#include <fstream>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -42,6 +45,7 @@ void writePNGBranchingJunctions(unsigned int numBackbones, const vector<vector<u
 void writePNGLegend(const vector<vector<unsigned int> > &backbones, string fn);
 void writePNGBackbonesThree(const Lumens &L, const vector<vector<unsigned int> > &backbones, string fn);
 void writePNGBinaryVolume(const BinaryVolume &B, string fn);
+void writeNiftiGzBinaryVolume(const BinaryVolume &B, string fn, const double voxdims[3]);
 
 // below are implementations rather than just headers. usually they appear in a different .cpp file but it was organized like this when I inherited the code.
 //-------------------------------------------------------
@@ -650,6 +654,93 @@ void writePNGBinaryVolume(const BinaryVolume &B, string fn){
         }
     }
     encodeOneStep(fn.c_str(), im, (unsigned int)B.getSize(0), (unsigned int)B.getSize(1));
+}
+
+/* Writes a BinaryVolume as a gzipped NIfTI-1 (.nii.gz) uint8 mask for Python (e.g. nibabel).
+ * Voxel order is standard NIfTI (x fastest). voxdims are written into pixdim / sform.
+ */
+void writeNiftiGzBinaryVolume(const BinaryVolume &B, string fn, const double voxdims[3]){
+	const unsigned int nx((unsigned int)B.getSize(0)), ny((unsigned int)B.getSize(1)), nz((unsigned int)B.getSize(2));
+	const size_t nvox((size_t)nx * (size_t)ny * (size_t)nz);
+	const size_t uncompressedSize(352 + nvox); // 348-byte header + 4-byte extender + voxel data
+	vector<unsigned char> raw(uncompressedSize, 0);
+
+	auto writeLE16 = [](unsigned char *p, unsigned short v){
+		p[0] = (unsigned char)(v & 0xff);
+		p[1] = (unsigned char)((v >> 8) & 0xff);
+	};
+	auto writeLE32 = [](unsigned char *p, unsigned int v){
+		p[0] = (unsigned char)(v & 0xff);
+		p[1] = (unsigned char)((v >> 8) & 0xff);
+		p[2] = (unsigned char)((v >> 16) & 0xff);
+		p[3] = (unsigned char)((v >> 24) & 0xff);
+	};
+	auto writeF32 = [](unsigned char *p, float f){
+		memcpy(p, &f, 4); // little-endian hosts (x86/x64/arm64 LE)
+	};
+
+	writeLE32(&raw[0], 348); // sizeof_hdr
+	writeLE16(&raw[40], 3); // dim[0] = 3D
+	writeLE16(&raw[42], (unsigned short)nx);
+	writeLE16(&raw[44], (unsigned short)ny);
+	writeLE16(&raw[46], (unsigned short)nz);
+	writeLE16(&raw[70], 2); // datatype = UINT8
+	writeLE16(&raw[72], 8); // bitpix
+	writeF32(&raw[76], 1.0f); // pixdim[0]
+	writeF32(&raw[80], (float)voxdims[0]);
+	writeF32(&raw[84], (float)voxdims[1]);
+	writeF32(&raw[88], (float)voxdims[2]);
+	writeF32(&raw[108], 352.0f); // vox_offset
+	writeF32(&raw[112], 1.0f); // scl_slope
+	writeLE16(&raw[254], 1); // sform_code = NIFTI_XFORM_SCANNER_ANAT
+	writeF32(&raw[280], (float)voxdims[0]); writeF32(&raw[284], 0.0f); writeF32(&raw[288], 0.0f); writeF32(&raw[292], 0.0f); // srow_x
+	writeF32(&raw[296], 0.0f); writeF32(&raw[300], (float)voxdims[1]); writeF32(&raw[304], 0.0f); writeF32(&raw[308], 0.0f); // srow_y
+	writeF32(&raw[312], 0.0f); writeF32(&raw[316], 0.0f); writeF32(&raw[320], (float)voxdims[2]); writeF32(&raw[324], 0.0f); // srow_z
+	raw[344] = 'n'; raw[345] = '+'; raw[346] = '1'; raw[347] = '\0'; // magic for .nii
+
+	// voxel data at offset 352 (extender bytes 348-351 already zero)
+	unsigned char *data(&raw[352]);
+	for(unsigned int z(0); z < nz; z++){
+		for(unsigned int y(0); y < ny; y++){
+			for(unsigned int x(0); x < nx; x++){
+				data[(size_t)x + (size_t)y * nx + (size_t)z * nx * ny] = B.is(x, y, z) ? 1 : 0;
+			}
+		}
+	}
+
+	// gzip wrapper around raw deflate (lodepng provides deflate, not gzip)
+	unsigned char *deflated(NULL);
+	size_t deflatedSize(0);
+	unsigned err(lodepng_deflate(&deflated, &deflatedSize, &raw[0], uncompressedSize, &lodepng_default_compress_settings));
+	if(err || deflated == NULL){
+		cout << "\n Error compressing NIfTI gzip (lodepng " << err << ")" << endl;
+		free(deflated);
+		return;
+	}
+
+	unsigned int crc(0xffffffffu);
+	for(size_t i(0); i < uncompressedSize; i++){
+		crc ^= raw[i];
+		for(int k(0); k < 8; k++)
+			crc = (crc >> 1) ^ (0xedb88320u & (unsigned int)(-(int)(crc & 1u)));
+	}
+	crc ^= 0xffffffffu;
+
+	ofstream out(fn.c_str(), ios::binary);
+	if(!out){
+		cout << "\n Error opening " << fn << " for writing" << endl;
+		free(deflated);
+		return;
+	}
+	const unsigned char gzHeader[10] = {0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 0xff};
+	out.write(reinterpret_cast<const char*>(gzHeader), 10);
+	out.write(reinterpret_cast<const char*>(deflated), (streamsize)deflatedSize);
+	unsigned char trailer[8];
+	writeLE32(&trailer[0], crc);
+	writeLE32(&trailer[4], (unsigned int)(uncompressedSize & 0xffffffffu));
+	out.write(reinterpret_cast<const char*>(trailer), 8);
+	out.close();
+	free(deflated);
 }
 
 #endif

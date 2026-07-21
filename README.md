@@ -59,10 +59,10 @@ A prebuilt binary can be found in releases: https://github.com/Savage-Lab-UCLA/A
 
 Example input images are in `sample_data/FITC-MCA0_N12_PI001_s1/`. Each `.png` file is a 2D slice of the 3D volume; Angicart reconstructs the volume from these slices before analysis.
 
-**Command-line usage (10 or 11 arguments):**
+**Command-line usage (10–13 arguments):**
 
 ```
-angicart.exe <image_dir> <im_start> <im_end> <output_base> <vox_x> <vox_y> <vox_z> <length_unit> <threshold> [thread_count]
+angicart.exe <image_dir> <im_start> <im_end> <output_base> <vox_x> <vox_y> <vox_z> <length_unit> <threshold> [thread_count] [max_connected_components] [save_nifti]
 ```
 
 | Argument      | Description |
@@ -70,13 +70,15 @@ angicart.exe <image_dir> <im_start> <im_end> <output_base> <vox_x> <vox_y> <vox_
 | `image_dir`   | Directory containing the input slice images WITHOUT the last '/' (e.g. `sample_data/FITC-MCA0_N12_PI001_s1`). |
 | `im_start`    | First slice index to include (inclusive). |
 | `im_end`      | Last slice index to include (inclusive). |
-| `output_base` | Base path for output files (`_vessels.png`, `.tsv`, `_withRoots.tsv`, `.dat`, etc. are appended to this prefix). |
+| `output_base` | Base path for output files (`_vessels.png`, `.tsv`, `_withRoots.tsv`, `.dat`, etc. are appended to this prefix; `_vessels.nii.gz` only if `save_nifti=1`). |
 | `vox_x`       | Voxel size in the x direction (same units as `length_unit`). |
 | `vox_y`       | Voxel size in the y direction (same units as `length_unit`). |
 | `vox_z`       | Voxel size in the z direction (same units as `length_unit`). |
 | `length_unit` | Name of the length unit for voxel dimensions and output (e.g. `um` or `mm`). |
 | `threshold`   | Normalized intensity threshold (0–1) to separate vascular from non-vascular voxels. |
 | `thread_count`| *(Optional)* Number of threads. If omitted, defaults to (CPU cores − 1). |
+| `max_connected_components` | *(Optional)* Maximum number of largest connected components to keep after thresholding. Default: `9`. If fewer components exist, all are kept. Requires `thread_count` to also be provided (use `0` to keep the default thread count). |
+| `save_nifti`  | *(Optional)* `0` or `1`. If `1`, also write `output_base_vessels.nii.gz`. Default: `0` (off). Requires `thread_count` and `max_connected_components` to also be provided. |
 
 > CRITICAL: `threshold` is the only hyperparameter that has to be tuned, usually for each tissue-dataset pair. Before running Angicart, it helps to explore different threshold values visually to identify an optimal normalized treshold value for identifying candidate vascular voxels. Depending on the type of imaging, you may have to perform some image preprocessing to make this thresholding possible. For example, there are many non-vascular artiacts in chest-CT scans that have to be cleaned to extract pulmonary vasculature with a thresholding approach. These steps may include segmenting the organ of interest and enhancing vessel structures (e.g. https://doi.org/10.3389/fevo.2021.691830). 
 
@@ -86,7 +88,7 @@ angicart.exe <image_dir> <im_start> <im_end> <output_base> <vox_x> <vox_y> <vox_
 angicart.exe sample_data/FITC-MCA0_N12_PI001_s1 0 61 sample_outputs/FITC-MCA0_N12_PI001_s1 0.412 0.412 0.492 um 0.2
 ```
 
-Optional 11th argument: thread count (e.g. `8`). If omitted, the program uses a default based on your CPU.
+Optional 11th argument: thread count (e.g. `8`). Optional 12th argument: max connected components (e.g. `20`). Optional 13th argument: save NIfTI mask (`0` or `1`). If omitted, thread count defaults based on your CPU, max connected components defaults to `9`, and NIfTI saving is off.
 
 All outputs use the path given as `output_base` with the following suffixes:
 
@@ -96,6 +98,7 @@ All outputs use the path given as `output_base` with the following suffixes:
 | `output_base_withRoots.tsv` | Same as above but with a rooted tree: each segment has a parent and children instead of a flat adjacency list. The root vessel of each connected component is identified by finding the tip with the largest average radius (the root vessel is the row with no parent vessel). |
 | `output_base.dat` | Per-backbone tables: for each segment, vertebra index, voxel coordinates (x, y, z), and per-vertebra radii (r_solid, r_surf). Blocks separated by blank lines; each block has a header with the segment name (same as in the TSV). These are x y z coordinates in the 3D array, NOT physical space |
 | `output_base_vessels.png` | Sanity-check visualization of the binary vessel volume before backbone extraction. |
+| `output_base_vessels.nii.gz` | *(Optional; only if `save_nifti=1`)* Binary vessel mask (uint8, 0/1) in NIfTI format for downstream Python visualization (e.g. nibabel). Voxel spacing is taken from `vox_x`, `vox_y`, `vox_z`. |
 | `output_base_sphere_radii.tsv` | A column of sphere radii: these are the radius of the spheres utilizes in the sphere coarsening step. The runtime is often long when there are a few large spheres so this output may be helpful for trouble shooting. |
 
 Each segment is labeled ("name" column) such that the index of the backbone within its connected component appears before the decimal point, and the connected component label appears after the  decimal point.

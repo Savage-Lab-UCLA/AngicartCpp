@@ -652,8 +652,9 @@ BinaryVolume removeSmallestConnectedComponents(const BinaryVolume &B, unsigned i
 	vector<unsigned long> sorted_sizes(cc_sizes);
 	sort(sorted_sizes.rbegin(), sorted_sizes.rend()); // sort the sizes in descending order
 	unsigned long minimumSize(sorted_sizes.back());
+	// Keep the N largest (plus any ties at the Nth size). If N >= number of CCs, keep all.
 	if(keepAtLeastThisManyLargest < sorted_sizes.size())
-		minimumSize = sorted_sizes[keepAtLeastThisManyLargest];
+		minimumSize = sorted_sizes[keepAtLeastThisManyLargest - 1];
 	
 	uB = B;
 	BinaryVolume lccsB(B); // initialize the binary volume to be returned, it will contain the largest connected components.
@@ -2390,38 +2391,22 @@ vector<vector<Backbone<> > > segregateBackbones(const vector<Backbone<>> &backbo
 
 /* Saves a sanity check visualization of the binary volume before backbone erosion.
  * @B the <BinaryVolume> to visualize
- * @outputBase base filename for output files (will append "_vessels.png" and "_vessels_coords.txt")
+ * @outputBase base filename for output files (will append "_vessels.png"; optionally "_vessels.nii.gz")
+ * @voxdims voxel dimensions written into the NIfTI header when saveNifti is true
+ * @saveNifti if true, also write a .nii.gz binary mask (default false)
  *
- * Saves a PNG visualization and a text file with voxel coordinates for debugging/visualization purposes.
+ * Saves a PNG average-intensity projection, and optionally a .nii.gz binary mask for downstream Python visualization.
  * Only runs when TRY_WX == 0 (non-GUI mode).
  */
- void saveVesselSanityCheck(const BinaryVolume &B, const string &outputBase){
+ void saveVesselSanityCheck(const BinaryVolume &B, const string &outputBase, const double voxdims[3], bool saveNifti = false){
 	#if TRY_WX == 0
 		generalStatusUpdate("Saving sanity check visualization of vessels before backbone erosion...");
 		writePNGBinaryVolume(B, outputBase + "_vessels.png");
-		
-		// COMMENTED OUT - but maybe useful in the future for figure visualizations
-		// Also save 3D voxel coordinates for Python visualization
-		//ofstream voxelCoordsOut((outputBase + "_vessels_coords.txt").c_str());
-		//voxelCoordsOut << "# Vessel voxel coordinates (not physical coordinates) - one per line\n";
-		//voxelCoordsOut << "# Total voxels: " << B.totalTrue() << "\n";
-		//voxelCoordsOut << "# Volume dimensions: " << B.getSize(0) << " x " << B.getSize(1) << " x " << B.getSize(2) << "\n";
-		
-		//voxelType i(0);
-		//unsigned long long voxelCount(0);
-		//while(i < B.totalSize()){
-			//i = B.findFirstAtOrAfter(i);
-			//if(i >= B.totalSize())
-				//break;
-			//voxelType xCoord(B.x(i)), yCoord(B.y(i)), zCoord(B.z(i));
-			//voxelCoordsOut << xCoord << "\t" << yCoord << "\t" << zCoord << "\n";
-			//voxelCount++;
-			//i++; // move to next index
-		//}
-		//voxelCoordsOut.close();
-		
 		generalStatusUpdate("Sanity check image saved to " + outputBase + "_vessels.png");
-		//generalStatusUpdate("Vessel coordinates saved to " + outputBase + "_vessels_coords.txt (" + makeString(voxelCount) + " voxels)");
+		if(saveNifti){
+			writeNiftiGzBinaryVolume(B, outputBase + "_vessels.nii.gz", voxdims);
+			generalStatusUpdate("Vessel mask saved to " + outputBase + "_vessels.nii.gz");
+		}
 	#endif
 }
 
@@ -2434,6 +2419,8 @@ vector<vector<Backbone<> > > segregateBackbones(const vector<Backbone<>> &backbo
  * @lengthUnit the length unit of voxdims
  * @thresh the intensity threshold to segregate vascular and nonvascular voxels
  * @critFrac the critical fraction of vascular voxels within a given sphere surface frontier that is required to continue growing the sphere
+ * @maxConnectedComponents maximum number of largest connected components to keep (default 9); if fewer exist, all are kept
+ * @saveNifti if true, write output_base_vessels.nii.gz during the sanity-check step (default false)
  *
  * Analyzes the vasculature in the specified images; identifies vascular images from voxel intensities; removes small components; segments the vasculature into disjoint intrasphere and intersphere spaces; erodes vascular meat to find backbones; analyzes structure and connectivity.
 */
@@ -2441,7 +2428,9 @@ vector<vector<Backbone<> > > segregateBackbones(const vector<Backbone<>> &backbo
 void analyzeVascularStructure(string imageDir, int imStart, int imEnd,
 		string outputTSVfnBase,
 		double voxdims[], string lengthUnit,
-		double thresh, double critFrac){
+		double thresh, double critFrac,
+		unsigned int maxConnectedComponents = 9,
+		bool saveNifti = false){
 
 	chrono::steady_clock::time_point analyzeTime(getNow()), tempTime;
 	srandSet(112358);
@@ -2461,14 +2450,14 @@ void analyzeVascularStructure(string imageDir, int imStart, int imEnd,
 	BinaryVolume B(threshThrash(L, thresh));
 	cout << "\n B.totalSize() = " << B.totalSize() << "\n B.totalTrue() = " << B.totalTrue() << endl;
 
-	// sanity check added by Kai to visualize projection of vessel mask and save vessel mask coordinates for downstream visualization. 
-	saveVesselSanityCheck(B, outputTSVfnBase); // TODO: for efficient checks of optimal threshold, we can add an option to stop here
-	
 	lengthUnitGlobal = lengthUnit;
 	for(unsigned int i(0); i < 3; i++){
 		voxdimsGlobal[i] = voxdims[i];
 		voldimsGlobal[i] = B.getSize(i); // size of volume from binary volume class.
 	}
+
+	// sanity check added by Kai to visualize projection of vessel mask and save vessel mask for downstream visualization.
+	saveVesselSanityCheck(B, outputTSVfnBase, voxdims, saveNifti); // TODO: for efficient checks of optimal threshold, we can add an option to stop here
 	
 	// finding largest connected components
 #if TRY_WX == 1
@@ -2480,7 +2469,7 @@ void analyzeVascularStructure(string imageDir, int imStart, int imEnd,
 #else
 	generalStatusUpdate("Finding largest connected components...");
 #endif
-	BinaryVolume lccsB = removeSmallestConnectedComponents(B, 9 // lccsB is another Binary volume that will contain the 9 largest connected components. 
+	BinaryVolume lccsB = removeSmallestConnectedComponents(B, maxConnectedComponents // keep up to this many largest connected components (all if fewer exist)
 #if TRY_WX == 1
 		, pm
 #endif
@@ -2817,8 +2806,33 @@ int main(int argc, char *argv[]){
 		string lengthUnit(argv[8]);
 		double thresh(atof(argv[9])), critFrac(0.16);
 		analyzeVascularStructure(imageDir, imStart, imEnd, outputTSVfnBase, voxdims, lengthUnit, thresh, critFrac);
+	}else if(argc == 12){ // 12th arg = max connected components to keep (default 9 if omitted)
+		int n(atoi(argv[10]));
+		if(n >= 1) numLocThreads = (unsigned int)n;
+		string imageDir(argv[1]);
+		int imStart(atoi(argv[2])), imEnd(atoi(argv[3]));
+		string outputTSVfnBase(argv[4]);
+		double voxdims[] = {atof(argv[5]), atof(argv[6]), atof(argv[7])};
+		string lengthUnit(argv[8]);
+		double thresh(atof(argv[9])), critFrac(0.16);
+		unsigned int maxConnectedComponents((unsigned int)atoi(argv[11]));
+		if(maxConnectedComponents < 1) maxConnectedComponents = 1;
+		analyzeVascularStructure(imageDir, imStart, imEnd, outputTSVfnBase, voxdims, lengthUnit, thresh, critFrac, maxConnectedComponents);
+	}else if(argc == 13){ // 13th arg = save_nifti (0/1; default off if omitted)
+		int n(atoi(argv[10]));
+		if(n >= 1) numLocThreads = (unsigned int)n;
+		string imageDir(argv[1]);
+		int imStart(atoi(argv[2])), imEnd(atoi(argv[3]));
+		string outputTSVfnBase(argv[4]);
+		double voxdims[] = {atof(argv[5]), atof(argv[6]), atof(argv[7])};
+		string lengthUnit(argv[8]);
+		double thresh(atof(argv[9])), critFrac(0.16);
+		unsigned int maxConnectedComponents((unsigned int)atoi(argv[11]));
+		if(maxConnectedComponents < 1) maxConnectedComponents = 1;
+		bool saveNifti(atoi(argv[12]) != 0);
+		analyzeVascularStructure(imageDir, imStart, imEnd, outputTSVfnBase, voxdims, lengthUnit, thresh, critFrac, maxConnectedComponents, saveNifti);
 	}else{
-		cout << "\n\n Expected: no args or [thread_count] for sphereCoarsenTest(); or 10 args (image_directory image_start image_end output_base voxdim_x voxdim_y voxdim_z length_unit threshold) with optional 11th arg = thread_count."
+		cout << "\n\n Expected: no args or [thread_count] for sphereCoarsenTest(); or 10 args (image_directory image_start image_end output_base voxdim_x voxdim_y voxdim_z length_unit threshold) with optional 11th arg = thread_count, optional 12th arg = max_connected_components, and optional 13th arg = save_nifti."
 			<< "\n\t string image_directory,\n\t int image_start_inclusive"
 			<< "\n\t int image_end_inclusive"
 			<< "\n\t string output_filename_base"
@@ -2828,6 +2842,8 @@ int main(int argc, char *argv[]){
 			<< "\n\t string length_unit_name"
 			<< "\n\t double normalized_intensity_threshold"
 			<< "\n\t [optional] int thread_count (default: hardware_concurrency - 1)"
+			<< "\n\t [optional] int max_connected_components (default: 9; keeps all if fewer exist)"
+			<< "\n\t [optional] int save_nifti (0 or 1; default: 0 / off)"
 			<< endl;
 	}
 	
